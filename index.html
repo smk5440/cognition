@@ -27,8 +27,8 @@
     </section>
     <form id="start-form" class="start-panel"><div class="participant-field"><label for="participant" data-i18n="participant">참가자 코드</label><input id="participant" name="participant" placeholder="예: P001" autocomplete="off" maxlength="40" pattern="[A-Za-z0-9_-]+" required aria-describedby="code-hint"><span id="code-hint" data-i18n="codeHint">이름 대신 영문·숫자 코드로 입력해 주세요.</span></div><div class="start-actions"><button type="button" id="demo-start" class="secondary" data-i18n="tryDemo">빠른 체험</button><button type="submit" class="primary" data-i18n="start">검사 시작 <span>↗</span></button></div><p id="form-error" class="form-error" role="alert"></p></form>
     <p class="bottom-note" data-i18n="bottomNote">설명과 연습 후 본검사가 시작됩니다. PC에서 참여해 주세요.</p>
-    <div id="recovery" hidden class="recovery"><span data-i18n="recoveryText">이 기기에 남아 있는 이전 검사 기록이 있습니다.</span><button id="recover-download" class="text-button" data-i18n="recoverDownload">기록 다운로드</button></div>
-    <footer><span data-i18n="footer">주의·기억 검사 · 연구용 시제품</span><span>v0.4</span></footer>
+    <div id="recovery" hidden class="recovery"><span data-i18n="recoveryText">이 기기에 남아 있는 이전 검사 기록이 있습니다.</span><button id="recover-download" class="text-button" data-i18n="download">Excel 결과 다운로드</button><button id="recover-result-json" class="text-button" data-i18n="downloadResultJson">검사 결과 JSON</button><button id="recover-json" class="text-button" data-i18n="downloadJson">전체 기록 JSON</button></div>
+    <footer><span data-i18n="footer">주의·기억 검사 · 연구용 시제품</span><span>v0.4.3</span></footer>
   </main>
   <section id="run-shell" hidden><div class="run-header"><span id="run-label"></span><span id="run-progress"></span><span id="demo-badge" class="badge" hidden data-i18n="demoBadge">체험 모드</span></div><div id="experiment"></div></section>
   <section id="results" hidden class="result-shell"></section>
@@ -4236,7 +4236,7 @@ var initJsPsych = jsPsychModule.initJsPsych;
 </script>
 <script>/* 연구자 설정. Posner는 중앙 예측 단서 / 주변 비예측 단서의 공간단서 검출 과제입니다. */
 window.BATTERY_CONFIG = {
-  "version": "0.4.0-posner-20261023",
+  "version": "0.4.3-workbook-20261024",
   "dataPipeExperimentId": "tDAHTPaQu9sy",
   "autoUpload": true,
   "defaultLanguage": "ko",
@@ -6262,7 +6262,7 @@ window.BATTERY_CONFIG = {
 </script>
 <script>(function (root) {
   'use strict';
-  const VERSION = '0.4.0-posner-20261023';
+  const VERSION = '0.4.3-workbook-20261024';
   function hashSeed(text) { let h=2166136261; for(const c of String(text)){h^=c.charCodeAt(0);h=Math.imul(h,16777619);} return h>>>0; }
   function rng(seed) {let s=hashSeed(seed); return ()=>{s+=0x6D2B79F5;let t=s;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return ((t^(t>>>14))>>>0)/4294967296;};}
   function shuffle(items, random) {const a=items.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
@@ -6409,6 +6409,283 @@ window.BATTERY_CONFIG = {
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BatteryLogic=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
 </script>
+<script>(function(root){
+'use strict';
+const L=typeof module!=='undefined'&&module.exports?require('./logic.js'):root.BatteryLogic;
+const median=a=>{const v=a.slice().sort((a,b)=>a-b),n=v.length;return n?(n%2?v[(n-1)/2]:(v[n/2-1]+v[n/2])/2):null;};
+const ratio=(n,d)=>d?n/d:null;
+function memoryTiming(r){
+ const times=Array.isArray(r.input_times_ms)?r.input_times_ms:[],intervals=times.slice(1).map((v,i)=>v-times[i]).filter(v=>Number.isFinite(v)&&v>=0);
+ return {position_correct:Array.isArray(r.expected_sequence)&&Array.isArray(r.response_sequence)?L.scoreMemory(r.expected_sequence,r.response_sequence).position_correct:r.position_correct??null,input_interval_mean:L.mean(intervals),decision_time:Number.isFinite(r.rt)&&Number.isFinite(r.total_rt)?r.total_rt-r.rt:null};
+}
+function sustained(rows,scope,condition){
+ const s=L.summary(rows,'sustained'),v=rows.filter(r=>r.valid_trial!==false),rt=v.filter(r=>r.condition==='go'&&r.correct&&Number.isFinite(r.rt)).map(r=>r.rt),fa=v.filter(r=>r.false_alarm&&Number.isFinite(r.rt)).map(r=>r.rt);
+ return {...s,summary_scope:scope,summary_condition:condition,correct_rejections:s.n_nogo-s.false_alarms,hit_rate:ratio(s.hits,s.n_go),go_rt_n:rt.length,go_rt_median:median(rt),go_rt_cv:rt.length>1&&s.go_rt_mean>0?s.go_rt_sd/s.go_rt_mean:null,false_alarm_rt_n:fa.length,response_bias_c:s.n_go&&s.n_nogo?-.5*(L.inverseNormal(s.hit_rate_corrected)+L.inverseNormal(s.false_alarm_rate_corrected)):null};
+}
+function memory(rows,direction,scope,condition){
+ const s=L.summary(rows,'memory',direction),v=rows.filter(r=>r.valid_trial!==false),timing=v.map(memoryTiming),rt=v.filter(r=>Number.isFinite(r.rt)).map(r=>r.rt),total=v.filter(r=>Number.isFinite(r.total_rt)).map(r=>r.total_rt),interval=timing.map(r=>r.input_interval_mean).filter(Number.isFinite);
+ return {...s,summary_scope:scope,summary_condition:condition,max_span:v.length?s.max_span:null,partial_credit_accuracy:L.mean(v.map((r,i)=>Number.isFinite(timing[i].position_correct)&&r.span>0?timing[i].position_correct/r.span:null).filter(Number.isFinite)),rt_n:rt.length,rt_median:median(rt),total_rt_n:total.length,decision_time_mean:L.mean(timing.map(r=>r.decision_time).filter(Number.isFinite)),input_interval_mean:L.mean(interval),input_interval_n:interval.length,omissions:v.filter(r=>r.omission).length,omission_rate:ratio(v.filter(r=>r.omission).length,v.length),complete_sequence_rate:ratio(v.filter(r=>Array.isArray(r.response_sequence)&&r.response_sequence.length===r.span).length,v.length),timeout_rate:ratio(v.filter(r=>r.timed_out).length,v.length)};
+}
+function records(rows){
+ const main=rows.filter(r=>r.phase==='main'),out=[],st=main.filter(r=>r.task_name==='sustained');
+ if(st.length){
+  out.push(sustained(st,'task','overall'));
+  const blocks=Array.from(new Set(st.map(r=>r.block))).filter(Number.isFinite).sort((a,b)=>a-b),bs=blocks.map(b=>sustained(st.filter(r=>r.block===b),'block','block_'+b));out.push(...bs);
+  const a=bs.find(s=>s.summary_condition==='block_1'),b=bs.find(s=>s.summary_condition==='block_2');
+  if(a&&b){const diff={task_name:'sustained',summary_scope:'block_comparison',summary_condition:'block2_minus_block1'};for(const k of ['go_rt_mean','go_rt_cv','omission_rate','false_alarm_rate'])diff['block2_minus_block1_'+k]=a.n_valid&&b.n_valid&&Number.isFinite(a[k])&&Number.isFinite(b[k])?b[k]-a[k]:null;out.push(diff);}
+ }
+ const dirs=[];
+ for(const d of ['forward','backward']){
+  const selected=main.filter(r=>r.task_name==='memory'&&r.direction===d);if(!selected.length)continue;
+  const overall=memory(selected,d,'direction',d);dirs.push(overall);out.push(overall);
+  for(const span of Array.from(new Set(selected.map(r=>r.span))).filter(Number.isFinite).sort((a,b)=>a-b))out.push(memory(selected.filter(r=>r.span===span),d,'span',d+'_span_'+span));
+ }
+ if(dirs.length===2){const [f,b]=dirs;out.push({task_name:'memory',summary_scope:'direction_comparison',summary_condition:'forward_minus_backward',forward_minus_backward_accuracy:Number.isFinite(f.accuracy)&&Number.isFinite(b.accuracy)?f.accuracy-b.accuracy:null,forward_minus_backward_span:Number.isFinite(f.max_span)&&Number.isFinite(b.max_span)?f.max_span-b.max_span:null});}
+ for(const s of L.posnerSummaries(main)){
+  const v=main.filter(r=>r.task_name==='posner'&&r.cue_type===s.cue_type&&r.soa_ms===s.soa_ms&&r.valid_trial!==false),r={...s,summary_scope:'cue_soa',summary_condition:s.cue_type+'_soa_'+s.soa_ms,anticipatory_rate:ratio(s.anticipatory_trials,s.n_valid)};
+  for(const c of ['valid','invalid']){
+   const g=v.filter(r=>r.condition===c&&r.target_present),rt=g.filter(r=>r.correct&&!r.anticipatory&&r.rt_eligible!==false&&Number.isFinite(r.rt)&&r.rt>=(r.minimum_rt_ms??100)).map(r=>r.rt);
+   Object.assign(r,{[c+'_target_n']:g.length,[c+'_accuracy']:ratio(g.filter(r=>r.correct).length,g.length),[c+'_omission_rate']:ratio(g.filter(r=>r.omission).length,g.length),[c+'_rt_median']:median(rt),[c+'_rt_sd']:L.sd(rt)});
+  }
+  r.cueing_effect_median_ms=Number.isFinite(r.valid_rt_median)&&Number.isFinite(r.invalid_rt_median)?r.invalid_rt_median-r.valid_rt_median:null;out.push(r);
+ }
+ return out;
+}
+// key, Korean name, unit, formula, RT/ratio denominator, origin, optional scope.
+const definitions=[];
+function add(tasks,items){for(const [key,label,unit,formula,basis,origin='existing',scopes=null]of items)definitions.push({tasks:tasks.split(','),key,label,unit,formula,basis,origin,scopes});}
+add('sustained,memory,posner',[
+ ['n_trials','본시행 수','count','환경상 제외 시행 포함',null],
+ ['n_valid','유효 시행 수','count','화면 이탈 등이 없는 본시행 수',null],
+ ['n_invalid','환경상 제외 시행 수','count','n_trials − n_valid',null],
+ ['n_correct','전체 정답 수','count','환경상 유효한 전체 정답 수','n_valid'],
+ ['accuracy','전체 정확도','proportion','n_correct / n_valid','n_valid']
+]);
+add('sustained',[
+ ['n_go','유효 Go 수','count','유효한 Go 시행 수',null],['n_nogo','유효 No-Go 수','count','유효한 No-Go 시행 수',null],
+ ['hits','Go 적중 수','count','유효 Go 중 반응 수','n_go'],['correct_rejections','No-Go 정기각 수','count','n_nogo − false_alarms','n_nogo','added'],
+ ['hit_rate','Go 적중률','proportion','hits / n_go','n_go','added'],
+ ['omissions','Go 누락 수','count','유효 Go 중 무반응 수','n_go'],['omission_rate','Go 누락률','proportion','omissions / n_go','n_go'],
+ ['false_alarms','No-Go 오경보 수','count','유효 No-Go 중 반응 수','n_nogo'],['false_alarm_rate','No-Go 오경보율','proportion','false_alarms / n_nogo','n_nogo'],
+ ['go_rt_n','정답 Go RT 수','count','유효 정답 Go 중 유한한 RT 수',null,'added'],
+ ['go_rt_mean','정답 Go 평균 RT','ms','유효 정답 Go RT 평균','go_rt_n'],
+ ['go_rt_sd','정답 Go RT 표준편차','ms','유효 정답 Go RT 표본 표준편차(n−1)','go_rt_n'],
+ ['go_rt_median','정답 Go RT 중앙값','ms','유효 정답 Go RT 중앙값','go_rt_n','added'],
+ ['go_rt_cv','정답 Go RT 변동계수','ratio','go_rt_sd / go_rt_mean; RT 2개 이상, 평균 > 0','go_rt_n','added'],
+ ['false_alarm_rt_mean','오경보 평균 RT','ms','유효 No-Go 오경보 평균 RT; 성공적 억제 RT가 아님','false_alarm_rt_n'],
+ ['hit_rate_corrected','보정 적중률','proportion','(hits + 0.5) / (n_go + 1)','n_go'],
+ ['false_alarm_rate_corrected','보정 오경보율','proportion','(false_alarms + 0.5) / (n_nogo + 1)','n_nogo'],
+ ['d_prime','민감도 d′','z','Z(보정 적중률) − Z(보정 오경보율); 유효 Go·No-Go 모두 필요','n_valid'],
+ ['response_bias_c','반응편향 c','z','−0.5 × [Z(보정 적중률) + Z(보정 오경보율)]; 양수=보수적, 음수=적극적 반응','n_valid','added']
+]);
+for(const [key,label,unit]of [['go_rt_mean','Go 평균 RT 변화','ms'],['go_rt_cv','Go RT 변동계수 변화','ratio_difference'],['omission_rate','Go 누락률 변화','proportion_difference'],['false_alarm_rate','No-Go 오경보율 변화','proportion_difference']])add('sustained',[['block2_minus_block1_'+key,label,unit,'2블록 − 1블록; 기술적 차이이며 피로·주의 저하를 확정하지 않음',null,'added',['block_comparison']]]);
+add('memory',[
+ ['error_rate','전체 오류율','proportion','1 − accuracy','n_valid'],
+ ['total_score','전체 정답 점수','count','유효 전체 정답 시행 수; 가중 Corsi 점수와 다름','n_valid','existing',['direction']],
+ ['max_span','최대 기억폭','items','유효 정답을 1회 이상 낸 최대 길이. n_valid=0이면 빈칸','n_valid','existing',['direction']],
+ ['partial_credit_accuracy','위치별 부분정답률','proportion','각 시행 position_correct / span의 평균(시행 동일 가중); 미입력 위치는 오답','n_valid','added'],
+ ['rt_n','첫 입력 RT 수','count','유효 시행 중 첫 입력 RT가 있는 시행 수',null,'added',['direction']],
+ ['rt_mean','첫 입력 평균 RT','ms','유효 시행 첫 입력 RT 평균; 정답·오답 포함','rt_n','existing',['direction']],
+ ['rt_median','첫 입력 RT 중앙값','ms','유효 시행 첫 입력 RT 중앙값; 정답·오답 포함','rt_n','added',['direction']],
+ ['total_rt_mean','전체 응답시간 평균','ms','응답 시작부터 제출/마감까지 평균; 마감 시행 포함','total_rt_n','existing',['direction']],
+ ['decision_time_mean','첫 입력 이후 종료시간 평균','ms','total_rt − rt의 평균; 제출/마감까지 포함하므로 입력 운동시간만을 뜻하지 않음','rt_n','existing',['direction']],
+ ['input_interval_mean','평균 입력 간격','ms','각 시행의 인접 입력 시각 차이 평균을 구한 뒤 해당 시행들의 평균; 입력 2개 이상','input_interval_n','added',['direction']],
+ ['omissions','무응답 시행 수','count','입력 0개인 유효 시행 수','n_valid','added',['direction']],
+ ['omission_rate','무응답 시행 비율','proportion','입력 0개 시행 수 / n_valid','n_valid','added',['direction']],
+ ['complete_sequence_rate','전체 길이 입력 비율','proportion','입력 수가 span과 같은 유효 시행 수 / n_valid; 정답 여부와 별개','n_valid','added',['direction']],
+ ['timeout_rate','시간 만료 시행 비율','proportion','timed_out=true 수 / n_valid; 정답과 중복 가능','n_valid','added',['direction']],
+ ['forward_minus_backward_accuracy','정순−역순 정확도','proportion_difference','정순 accuracy − 역순 accuracy',null,'existing',['direction_comparison']],
+ ['forward_minus_backward_span','정순−역순 기억폭','items_difference','정순 max_span − 역순 max_span',null,'existing',['direction_comparison']]
+]);
+add('posner',[
+ ['n_target','유효 표적 수','count','유효한 표적 시행 수',null],['n_catch','유효 Catch 수','count','유효한 Catch 시행 수',null],
+ ['valid_target_n','Valid 유효 표적 수','count','유효 Valid 표적 수',null,'added'],['invalid_target_n','Invalid 유효 표적 수','count','유효 Invalid 표적 수',null,'added'],
+ ['valid_accuracy','Valid 정확도','proportion','유효 Valid 정답 수 / valid_target_n','valid_target_n','added'],['invalid_accuracy','Invalid 정확도','proportion','유효 Invalid 정답 수 / invalid_target_n','invalid_target_n','added'],
+ ['valid_rt_n','Valid 분석 RT 수','count','유효·정답·비예측·하한 통과 Valid 표적 RT 수',null],['invalid_rt_n','Invalid 분석 RT 수','count','유효·정답·비예측·하한 통과 Invalid 표적 RT 수',null],
+ ['valid_rt_mean','Valid 평균 RT','ms','분석 대상 Valid RT 평균','valid_rt_n'],['invalid_rt_mean','Invalid 평균 RT','ms','분석 대상 Invalid RT 평균','invalid_rt_n'],
+ ['valid_rt_median','Valid RT 중앙값','ms','분석 대상 Valid RT 중앙값','valid_rt_n','added'],['invalid_rt_median','Invalid RT 중앙값','ms','분석 대상 Invalid RT 중앙값','invalid_rt_n','added'],
+ ['valid_rt_sd','Valid RT 표준편차','ms','분석 대상 Valid RT 표본 표준편차','valid_rt_n','added'],['invalid_rt_sd','Invalid RT 표준편차','ms','분석 대상 Invalid RT 표본 표준편차','invalid_rt_n','added'],
+ ['cueing_effect_ms','평균 RT 단서 효과','ms','invalid_rt_mean − valid_rt_mean; 음수도 보존',null],
+ ['cueing_effect_median_ms','중앙값 RT 단서 효과','ms','invalid_rt_median − valid_rt_median; 평균 기반 효과와 구분',null,'added'],
+ ['omissions','표적 누락 수','count','유효 표적 중 표적 후 무반응 수','n_target'],['omission_rate','표적 누락률','proportion','omissions / n_target','n_target'],
+ ['valid_omission_rate','Valid 누락률','proportion','Valid 표적 후 무반응 수 / valid_target_n','valid_target_n','added'],['invalid_omission_rate','Invalid 누락률','proportion','Invalid 표적 후 무반응 수 / invalid_target_n','invalid_target_n','added'],
+ ['false_alarms','Catch 오경보 수','count','유효 Catch에서 표적 전/후 반응한 시행 수','n_catch'],['catch_false_alarm_rate','Catch 오경보율','proportion','false_alarms / n_catch','n_catch'],
+ ['anticipatory_trials','예측 반응 시행 수','count','유효 시행 중 표적 전 입력/하한 미만 RT가 있는 시행 수','n_valid'],['anticipatory_rate','예측 반응 시행 비율','proportion','anticipatory_trials / n_valid; 누락·오경보와 중복 가능','n_valid','added']
+]);
+function fields(record){
+ return definitions.filter(d=>d.tasks.includes(record.task_name)&&(!d.scopes||d.scopes.includes(record.summary_scope))&&Object.hasOwn(record,d.key)&&!(record.summary_scope==='span'&&!['n_trials','n_valid','n_invalid','n_correct','accuracy','partial_credit_accuracy'].includes(d.key)));
+}
+const api={definitions,median,memoryTiming,records,fields};
+if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BatteryMetrics=api;
+})(typeof globalThis!=='undefined'?globalThis:this);
+
+</script>
+<script>(function(root){
+'use strict';
+const L=typeof module!=='undefined'&&module.exports?require('./logic.js'):root.BatteryLogic,M=typeof module!=='undefined'&&module.exports?require('./metrics.js'):root.BatteryMetrics;
+const taskNames={sustained:['SA','지속주의력'],memory:['VWM','시공간 작업기억'],posner:['POSNER','외인성/내인성 주의력']};
+const faces=['위','왼쪽','오른쪽'],directions={forward:'정순',backward:'역순'},sides={left:'왼쪽',right:'오른쪽'};
+const finite=v=>Number.isFinite(v)?Number(v.toFixed(3)):null;
+function koreanTime(iso){if(!iso||!Number.isFinite(Date.parse(iso)))return null;return new Date(Date.parse(iso)+9*3600000).toISOString().replace('T',' ').slice(0,19);}
+function conditionLabel(record){
+ const c=record.summary_condition;
+ if(c==='overall')return '전체';
+ if(record.summary_scope==='block')return c.replace('block_','블록 ');
+ if(c==='block2_minus_block1')return '2블록−1블록 비교';
+ if(c==='forward_minus_backward')return '정순−역순 비교';
+ if(record.task_name==='memory'){const [d,,span]=c.split('_');return directions[d]+(span?' · 기억폭 '+span:'');}
+ if(record.task_name==='posner')return (c.startsWith('exogenous')?'외인성':'내인성')+' · SOA '+record.soa_ms+'ms';
+ return c;
+}
+function item(row,index){
+ const valid=row.valid_trial!==false,base={'문항 아이디':taskNames[row.task_name][0]+'_'+String(index+1).padStart(3,'0'),'문항 번호':index+1,'문항 점수':valid?(row.correct?1:0):null,'정답 여부':!!row.correct,'분석 포함 여부':valid,'누락오류':!!row.omission};
+ if(row.task_name==='sustained')return {...base,'블록':row.block,'블록 내 문항 번호':row.trial_in_block,'문항 유형':row.condition==='go'?'Go':'No-Go','자극 조합':row.combination_id,'정답 반응':row.condition==='go'?'누르기':'누르지 않기','문항 응답':row.response?'누름':'무응답','오경보오류':!!row.false_alarm,'반응 시간':finite(row.rt)};
+ if(row.task_name==='memory'){
+  const timing=M.memoryTiming(row);
+  return {...base,'문항 유형':directions[row.direction],'방향 내 문항 번호':row.trial_in_block,'기억폭':row.span,'제시 순서':(row.sequence||[]).map(v=>faces[v]),'정답 순서':(row.expected_sequence||[]).map(v=>faces[v]),'문항 응답':(row.response_sequence||[]).map(v=>faces[v]),'맞은 위치 수':timing.position_correct,'위치별 정확도':Number.isFinite(timing.position_correct)&&row.span>0?Number((timing.position_correct/row.span).toFixed(6)):null,'오류 유형':({none:'없음',no_response:'무응답',incomplete_sequence:'입력 길이 불일치',order_error:'순서 오류',face_sequence_mismatch:'면 구성 불일치'})[row.error_type]||row.error_type||null,'첫 반응시간':finite(row.rt),'총 반응시간':finite(row.total_rt),'결정시간':finite(timing.decision_time),'평균 입력 간격':finite(timing.input_interval_mean),'제출 여부':!!row.submitted,'시간 만료 여부':!!row.timed_out};
+ }
+ return {...base,'문항 유형':row.cue_type==='exogenous'?'외인성':'내인성','블록':row.block,'블록 내 문항 번호':row.trial_in_block,'단서 조건':({valid:'일치',invalid:'불일치',catch:'무표적'})[row.condition],'SOA':row.soa_ms,'단서 위치':sides[row.cue_side]||null,'표적 위치':sides[row.target_side]||null,'문항 응답':row.response?'스페이스바':'무응답','오경보오류':!!row.false_alarm,'예측 반응':!!row.anticipatory,'RT 분석 포함 여부':!!row.rt_eligible,'반응 시간':finite(row.rt)};
+}
+function output(data,rows){
+ const start=koreanTime(data.started_at),date=start?start.slice(0,10):'검사일 미상',byTask={};
+ for(const [task,[code,name]]of Object.entries(taskNames)){
+  const selected=rows.filter(r=>r.task_name===task);if(!selected.length)continue;
+  const valid=selected.filter(r=>r.valid_trial!==false),correct=valid.filter(r=>r.correct).length,summary={};
+  for(const record of M.records(selected)){
+   const values={};for(const def of M.fields(record))values[def.label]=Number.isFinite(record[def.key])?Number(record[def.key].toFixed(def.unit==='ms'?3:6)):null;
+   summary[conditionLabel(record)]=values;
+  }
+  const result={'참가자 번호':data.participant_id,'세션 아이디':data.csv_session_id,'검사명':name,'검사일':date,'세션 시작 시간':start,'세션 종료 시간':koreanTime(data.completed_at),'표시 시간대':'Asia/Seoul','실시 모드':data.run_mode,'검사 완료 여부':!!data.session_complete,'시간 단위':'ms','정확도·오류율 단위':'비율(0–1)','총점':correct,'정반응 수':correct,'실패 횟수':valid.length-correct,'누락오류 수':valid.filter(r=>r.omission).length,'본시행 수':selected.length,'유효 시행 수':valid.length,'제외 시행 수':selected.length-valid.length};
+  if(task!=='memory')result['오경보오류 수']=valid.filter(r=>r.false_alarm).length;
+  if(task==='memory'){result['그대로따라하기총점']=valid.filter(r=>r.direction==='forward'&&r.correct).length;result['거꾸로따라하기총점']=valid.filter(r=>r.direction==='backward'&&r.correct).length;}
+  result['요약 측정치']=summary;result['문항별 상세 결과']=selected.map(item);byTask[code]=[result];
+ }
+ return {result:{[date]:byTask}};
+}
+const api={output,item,koreanTime,conditionLabel};
+if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BatteryResults=api;
+})(typeof globalThis!=='undefined'?globalThis:this);
+
+</script>
+<script>(function(root){
+'use strict';
+const encoder=new TextEncoder(),ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+function xml(value){return String(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g,'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));}
+function column(index){let name='';for(let n=index+1;n;n=Math.floor((n-1)/26))name=String.fromCharCode(65+(n-1)%26)+name;return name;}
+function cell(value,row,col,header=false){
+ const ref=column(col)+row,style=header?' s="1"':'';
+ if(value===null||value===undefined||typeof value==='number'&&!Number.isFinite(value))return '<c r="'+ref+'"'+style+'/>';
+ if(typeof value==='number')return '<c r="'+ref+'"'+style+'><v>'+value+'</v></c>';
+ if(typeof value==='boolean')return '<c r="'+ref+'"'+style+' t="b"><v>'+(value?1:0)+'</v></c>';
+ const text=typeof value==='object'?JSON.stringify(value):String(value);
+ return '<c r="'+ref+'"'+style+' t="inlineStr"><is><t xml:space="preserve">'+xml(text)+'</t></is></c>';
+}
+function worksheet(sheet){
+ const columns=sheet.columns||Array.from(new Set(sheet.rows.flatMap(r=>Object.keys(r)))),end=column(Math.max(0,columns.length-1))+(sheet.rows.length+1);
+ const header='<row r="1" ht="30" customHeight="1">'+columns.map((v,i)=>cell(v,1,i,true)).join('')+'</row>';
+ const rows=sheet.rows.map((r,i)=>'<row r="'+(i+2)+'">'+columns.map((key,j)=>cell(r[key],i+2,j)).join('')+'</row>').join('');
+ const widths=columns.map((key,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+(key==='measure'?43:key.includes('sequence')?30:key==='condition'?30:key==='summary_scope'?24:key==='error_type'?28:19)+'" customWidth="1"/>').join('');
+ return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="'+ns+'"><dimension ref="A1:'+end+'"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols>'+widths+'</cols><sheetData>'+header+rows+'</sheetData><autoFilter ref="A1:'+end+'"/></worksheet>';
+}
+const crcTable=Array.from({length:256},(_,i)=>{let c=i;for(let j=0;j<8;j++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0;});
+function crc32(bytes){let c=0xffffffff;for(const b of bytes)c=crcTable[(c^b)&255]^(c>>>8);return (c^0xffffffff)>>>0;}
+function zip(entries){
+ const prepared=entries.map(([name,text])=>({name:encoder.encode(name),bytes:encoder.encode(text)}));
+ const length=prepared.reduce((sum,e)=>sum+30+e.name.length+e.bytes.length+46+e.name.length,22),bytes=new Uint8Array(length),view=new DataView(bytes.buffer),central=[];
+ let offset=0;const u16=(at,v)=>view.setUint16(at,v,true),u32=(at,v)=>view.setUint32(at,v,true);
+ for(const e of prepared){const start=offset,crc=crc32(e.bytes);u32(offset,0x04034b50);u16(offset+4,20);u16(offset+6,0x0800);u16(offset+8,0);u16(offset+10,0);u16(offset+12,33);u32(offset+14,crc);u32(offset+18,e.bytes.length);u32(offset+22,e.bytes.length);u16(offset+26,e.name.length);u16(offset+28,0);bytes.set(e.name,offset+30);bytes.set(e.bytes,offset+30+e.name.length);offset+=30+e.name.length+e.bytes.length;central.push({...e,start,crc});}
+ const centralStart=offset;
+ for(const e of central){u32(offset,0x02014b50);u16(offset+4,20);u16(offset+6,20);u16(offset+8,0x0800);u16(offset+10,0);u16(offset+12,0);u16(offset+14,33);u32(offset+16,e.crc);u32(offset+20,e.bytes.length);u32(offset+24,e.bytes.length);u16(offset+28,e.name.length);u16(offset+30,0);u16(offset+32,0);u16(offset+34,0);u16(offset+36,0);u32(offset+38,0);u32(offset+42,e.start);bytes.set(e.name,offset+46);offset+=46+e.name.length;}
+ const centralLength=offset-centralStart;u32(offset,0x06054b50);u16(offset+4,0);u16(offset+6,0);u16(offset+8,central.length);u16(offset+10,central.length);u32(offset+12,centralLength);u32(offset+16,centralStart);u16(offset+20,0);
+ return bytes;
+}
+function workbook(sheets){
+ if(!sheets.length||sheets.some(s=>!s.name||s.name.length>31||/[\\/?*[\]:]/.test(s.name))||new Set(sheets.map(s=>s.name.toLowerCase())).size!==sheets.length)throw Error('Invalid worksheet names');
+ const rel='http://schemas.openxmlformats.org/officeDocument/2006/relationships',types='http://schemas.openxmlformats.org/package/2006/content-types';
+ const entries=[
+ ['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8"?><Types xmlns="'+types+'"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'+sheets.map((_,i)=>'<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('')+'</Types>'],
+ ['_rels/.rels','<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="'+rel+'/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+ ['xl/workbook.xml','<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="'+ns+'" xmlns:r="'+rel+'"><bookViews><workbookView/></bookViews><sheets>'+sheets.map((s,i)=>'<sheet name="'+xml(s.name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets></workbook>'],
+ ['xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheets.map((_,i)=>'<Relationship Id="rId'+(i+1)+'" Type="'+rel+'/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join('')+'<Relationship Id="rIdStyles" Type="'+rel+'/styles" Target="styles.xml"/></Relationships>'],
+ ['xl/styles.xml','<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="'+ns+'"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEEEEEE"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>']
+ ];
+ sheets.forEach((s,i)=>entries.push(['xl/worksheets/sheet'+(i+1)+'.xml',worksheet(s)]));return zip(entries);
+}
+function base64(bytes){const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';let out='';for(let i=0;i<bytes.length;i+=3){const a=bytes[i],b=bytes[i+1],c=bytes[i+2],n=(a<<16)|((b||0)<<8)|(c||0);out+=chars[(n>>>18)&63]+chars[(n>>>12)&63]+(i+1<bytes.length?chars[(n>>>6)&63]:'=')+(i+2<bytes.length?chars[n&63]:'=');}return out;}
+const api={workbook,base64};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BatteryWorkbook=api;
+})(typeof globalThis!=='undefined'?globalThis:this);
+
+</script>
+<script>(function(root){
+'use strict';
+const node=typeof module!=='undefined'&&module.exports,L=node?require('./logic.js'):root.BatteryLogic,M=node?require('./metrics.js'):root.BatteryMetrics,R=node?require('./results.js'):root.BatteryResults,W=node?require('./workbook.js'):root.BatteryWorkbook;
+const trialFields={
+ sustained:['block','trial_in_block','condition','combination_id','response','correct','omission','false_alarm','rt','valid_trial'],
+ memory:['direction','trial_in_block','span','sequence','expected_sequence','response_sequence','correct','position_correct','position_accuracy','omission','error_type','rt','total_rt','input_interval_mean','complete_sequence','submitted','timed_out','valid_trial'],
+ posner:['cue_type','block','trial_in_block','condition','soa_ms','cue_side','target_side','response','correct','omission','false_alarm','anticipatory','rt','rt_eligible','valid_trial']
+};
+function sessionId(data){const id=String(data.session_id||'');return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)?id.replace(/-/g,'').slice(0,12):id;}
+function common(data,task){return {participant_id:data.participant_id,session_id:sessionId(data),run_mode:data.run_mode,session_complete:data.session_complete,task_name:task};}
+function mainRows(data,rows){const selected=data.selected||data.selected_tasks;return rows.filter(r=>r.record_type==='trial'&&r.phase==='main'&&trialFields[r.task_name]&&(!Array.isArray(selected)||selected.includes(r.task_name)));}
+function trialRows(data,rows){return mainRows(data,rows).map(row=>{
+ let r=row;if(row.task_name==='memory'){const timing=M.memoryTiming(row);r={...row,...timing,position_accuracy:Number.isFinite(timing.position_correct)&&row.span>0?timing.position_correct/row.span:null,complete_sequence:Array.isArray(row.response_sequence)&&row.response_sequence.length===row.span};}
+ return {...common(data,row.task_name),...Object.fromEntries(trialFields[row.task_name].map(k=>[k,r[k]??null]))};
+});}
+function summaryRecords(data,rows){return M.records(mainRows(data,rows));}
+function summaryRows(data,rows){return summaryRecords(data,rows).flatMap(s=>M.fields(s).map(d=>({...common(data,s.task_name),summary_scope:s.summary_scope,condition:s.summary_condition,measure:d.key,value:Number.isFinite(s[d.key])?Number(s[d.key].toFixed(d.unit==='ms'?3:6)):null,unit:d.unit,n_used:d.basis?s[d.basis]??null:null})));}
+function csvText(rows){return '\uFEFF'+L.csv(rows);}
+function fileNames(data){const base=(data.filename||'recovered').replace(/\.(csv|xlsx|json)$/i,'');return {results:base+'_results.json',workbook:base+'_results.xlsx',raw:base+'_raw.json'};}
+function workbookBytes(data,rows){
+ const summaries=summaryRows(data,rows),trials=trialRows(data,rows),summaryColumns=['participant_id','session_id','run_mode','session_complete','task_name','summary_scope','condition','measure','value','unit','n_used'];
+ const selected=data.selected||data.selected_tasks||[],trialColumns=trials.length?Array.from(new Set(trials.flatMap(r=>Object.keys(r)))):['participant_id','session_id','run_mode','session_complete','task_name',...new Set(selected.flatMap(t=>trialFields[t]||[]))];
+ return W.workbook([{name:'summary',rows:summaries,columns:summaryColumns},{name:'trials',rows:trials,columns:trialColumns}]);
+}
+function cleanResult(data,rows){return R.output({...data,csv_session_id:sessionId(data)},mainRows(data,rows));}
+function files(data,rows){const names=fileNames(data);return [{key:'results',filename:names.results,encoding:'text',data:JSON.stringify(cleanResult(data,rows),null,2)},{key:'workbook',filename:names.workbook,encoding:'base64',data:W.base64(workbookBytes(data,rows))}];}
+function rawSession(data,rows,interruptions){return {...data,csv_session_id:sessionId(data),rows,interruptions:interruptions||data.interruptions||[],summaries:summaryRecords(data,rows)};}
+const api={sessionId,mainRows,trialRows,summaryRecords,summaryRows,csvText,fileNames,workbookBytes,files,cleanResult,rawSession};
+if(node)module.exports=api;else root.BatteryExport=api;
+})(typeof globalThis!=='undefined'?globalThis:this);
+
+</script>
+<script>(function(root){
+'use strict';
+const active=new WeakSet();
+async function send(session,files,options={}){
+ if(active.has(session))return {busy:true};
+ if(session.run_mode==='demo'||!session.dataPipeExperimentId)return {skipped:true};
+ active.add(session);
+ const request=options.fetch||fetch,changed=options.onProgress||(()=>{});
+ try{
+  session.upload_files=session.upload_files||{};
+  for(const f of files)if(session.upload_files[f.key]?.filename!==f.filename)session.upload_files[f.key]={filename:f.filename,status:'not_attempted'};
+  session.upload_status='sending';changed();
+  for(const file of files){
+   const state=session.upload_files[file.key];
+   if(['saved','queued','needs_verify'].includes(state.status))continue;
+   state.status='sending';delete state.error;changed();
+   let definiteRejection=false;
+   try{
+    const response=await request('https://pipe.jspsych.org/api/'+(file.encoding==='base64'?'base64':'data')+'/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({experimentID:session.dataPipeExperimentId,filename:file.filename,data:file.data}),signal:AbortSignal.timeout(30000)});
+    const body=await response.json();
+    if(response.status===201&&!body.error)state.status='saved';
+    else if(response.status===202&&!body.error)state.status='queued';
+    else if(body.error==='FILE_EXISTS'){state.status='needs_verify';state.error='FILE_EXISTS';}
+    else {definiteRejection=true;throw Error(body.error||'HTTP_'+response.status);}
+   }catch(error){state.status=definiteRejection?'failed':'uncertain';state.error=String(error.message||error);changed();break;}
+   changed();
+  }
+  const states=files.map(f=>session.upload_files[f.key]),unconfirmed=states.some(s=>!['saved','queued'].includes(s.status));
+  session.upload_status=unconfirmed?'uncertain':states.some(s=>s.status==='queued')?'queued':'saved';
+  session.upload_error=states.filter(s=>s.error).map(s=>s.error).join(', ')||null;changed();
+  return {status:session.upload_status,files:session.upload_files};
+ }finally{active.delete(session);}
+}
+const api={send};
+if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BatteryUpload=api;
+})(typeof globalThis!=='undefined'?globalThis:this);
+
+</script>
 <script>window.BATTERY_TEXT = {
   ko: {
     eyebrow:'COGNITIVE TASKS · 인지 과제',title:'집중하고,<br>기억해 보세요.',lead:'두 가지 짧은 과제로 주의를 유지하고<br>공간의 순서를 기억하는 능력을 살펴봅니다.',
@@ -6431,6 +6708,8 @@ window.BATTERY_CONFIG = {
     memorySpeechForward:'Các mặt của khối lập phương sẽ lần lượt sáng lên. Hãy ghi nhớ và nhấn các nút Trên, Trái, Phải theo đúng thứ tự đó. Nhấn Tiếp theo để nộp. Bạn có 5 giây để trả lời.',memorySpeechBackward:'Lần này hãy nhập theo thứ tự ngược lại, bắt đầu từ mặt sáng lên cuối cùng. Nhấn Tiếp theo để nộp. Bạn có 5 giây để trả lời.',watch:'Ghi nhớ trình tự.',recallForward:'Nhập theo thứ tự đã xem.',recallBackward:'Nhập theo thứ tự ngược lại.',inputCount:'Đã nhập {n} / {span}',practiceCorrect:'Chính xác',practiceIncorrect:'Hãy tập trung ở lượt tiếp theo',practiceSummary:'Bạn trả lời đúng {correct} trong {n} lượt luyện tập.',practiceReady:'Nếu đã hiểu quy tắc, hãy bắt đầu kiểm tra. Bạn cũng có thể luyện tập lại.',blockReady:'Khối tiếp theo sắp bắt đầu.',blockRest:'Bạn có thể nghỉ một chút. Nhấn tiếp tục khi sẵn sàng.',taskFinished:'Bạn đã hoàn thành bài này.',nextTask:'Vui lòng đọc hướng dẫn cho bài tiếp theo.',done:'Đã hoàn thành.',doneBody:'Cảm ơn bạn đã tham gia. Bạn có thể tải dữ liệu ở bên dưới.',demoDone:'Đã hoàn thành trải nghiệm.',demoDoneBody:'Dữ liệu trải nghiệm được phân biệt với kiểm tra và không tự động gửi.',download:'Tải dữ liệu CSV',downloadJson:'Tải toàn bộ JSON',newSession:'Về trang đầu',researchResults:'Tóm tắt dành cho nhà nghiên cứu',saveLocal:'Dữ liệu được lưu trong trình duyệt này. Vui lòng tải CSV.',saveDisabled:'Chưa kết nối lưu trữ tự động. Vui lòng tải CSV.',saving:'Đang gửi dữ liệu…',saved:'Đã lưu dữ liệu vào kho lưu trữ đã kết nối.',queued:'Đã tiếp nhận. Dữ liệu đang chờ chuyển tới kho lưu trữ.',saveFailed:'Chưa xác nhận được trạng thái gửi. Hãy tải CSV và báo nhà nghiên cứu.',retry:'Gửi lại',demoNoUpload:'Dữ liệu trải nghiệm sẽ không được gửi tự động.',invalidNotice:'Các lượt bị ảnh hưởng bởi chuyển màn hình được đánh dấu và loại khỏi tóm tắt.',smallScreen:'Màn hình quá nhỏ. Vui lòng dùng máy tính hoặc màn hình lớn hơn.',interruption:'Đã phát hiện chuyển màn hình. Nhấn tiếp tục khi sẵn sàng. Lượt này sẽ được đánh dấu.',abort:'Dừng kiểm tra',abortConfirm:'Bạn muốn dừng? Dữ liệu đã thu vẫn có thể tải xuống.',aborted:'Đã dừng kiểm tra.',partial:'Đây là dữ liệu một phần, chưa hoàn thành kiểm tra.',speechUnavailable:'Trình duyệt không hỗ trợ đọc hướng dẫn. Vui lòng đọc nội dung trên màn hình.',storageUnavailable:'Trình duyệt hạn chế lưu tạm. Hãy tải CSV khi hoàn thành.',summaryTask:'Bài',summaryN:'Hợp lệ / Tổng',summaryAcc:'Độ chính xác',summaryMetric:'Chỉ số khác',trials:'lượt',back:'Quay lại',ready:'Sẵn sàng bắt đầu',readyText:'Đọc hướng dẫn và bắt đầu luyện tập.',noMain:'Chưa có dữ liệu kiểm tra.',clearLocal:'Xóa dữ liệu trên thiết bị này',clearConfirm:'Nếu đã tải dữ liệu, bạn có thể xóa bản trên thiết bị. Xóa bây giờ?'
   }
 };
+Object.assign(window.BATTERY_TEXT.ko,{downloadSummary:'요약 CSV 다운로드'});
+Object.assign(window.BATTERY_TEXT.vi,{downloadSummary:'Tải CSV tóm tắt'});
 Object.assign(window.BATTERY_TEXT.ko,{
   lead:'지속주의력, 공간의 순서 기억,<br>단서에 따른 주의 배분을 살펴봅니다.',
   posner:'외인성/내인성 주의력',posnerDesc:'표적이 나타나면 스페이스바를 눌러 주세요.',posnerCount:'440 시행 · 외인성·내인성',endogenous:'내인성 단서',exogenous:'외인성 단서',
@@ -6453,6 +6732,18 @@ Object.assign(window.BATTERY_TEXT.vi,{
   posnerSpeechExogenous:'Giữ mắt nhìn vào giữa. Một ô sáng lên trong chốc lát, nhưng không dự đoán vị trí mục tiêu. Nhấn phím cách một lần khi chấm nhỏ xuất hiện ở bất kỳ bên nào. Không nhấn nếu không có chấm.',
   posnerResultNotice:'ΔRT của Posner bằng RT trung bình ở lượt tín hiệu không hợp lệ trừ RT ở lượt hợp lệ. Diễn giải riêng theo loại tín hiệu và SOA; giá trị lớn hay nhỏ không tự thể hiện khả năng chú ý tốt hay kém. Bài này yêu cầu nhìn vào giữa nhưng không theo dõi mắt.',posnerMetric:'Hiệu ứng tín hiệu',posnerSamples:'Số RT hợp lệ/không hợp lệ'
 });
+
+Object.assign(window.BATTERY_TEXT.ko,{"downloadResultJson":"검사 결과 JSON","savingFiles":"시행별 CSV·요약 CSV·결과 JSON 3개를 전송하고 있습니다…","savedFiles":"시행별 CSV·요약 CSV·결과 JSON 3개를 저장했습니다.","queuedFiles":"3개 결과 파일을 접수했습니다. 일부 파일의 저장소 업로드가 대기 중입니다.","saveFailedFiles":"총 {total}개 중 {n}개 파일의 전송을 접수했습니다. 나머지 파일은 상태 확인이 필요합니다. 결과 파일을 다운로드해 주세요. FILE_EXISTS이면 저장소의 같은 이름 파일을 확인해 주세요."});
+
+Object.assign(window.BATTERY_TEXT.vi,{"downloadResultJson":"Tải kết quả JSON","savingFiles":"Đang gửi 3 tệp: CSV từng lượt, CSV tóm tắt và JSON kết quả…","savedFiles":"Đã lưu 3 tệp kết quả.","queuedFiles":"Đã tiếp nhận 3 tệp. Một số tệp đang chờ tải tới kho lưu trữ.","saveFailedFiles":"Đã tiếp nhận {n}/{total} tệp. Vui lòng tải các tệp để bảo quản. Nếu có FILE_EXISTS, hãy kiểm tra tệp cùng tên trong kho lưu trữ."});
+
+Object.assign(window.BATTERY_TEXT.ko,{"download":"Excel 결과 다운로드","downloadJson":"전체 원본 JSON (연구자용)","savingFiles":"결과 JSON·Excel 2개를 전송하고 있습니다…","savedFiles":"결과 JSON·Excel 2개를 저장했습니다.","queuedFiles":"결과 JSON·Excel 2개를 접수했습니다. 일부 파일의 저장소 업로드가 대기 중입니다.","saveFailedFiles":"총 {total}개 중 {n}개 파일의 전송을 접수했습니다. 결과 JSON과 Excel을 다운로드해 주세요. FILE_EXISTS는 저장소의 같은 이름 파일을 확인해 주세요.","saveBase64Disabled":"JSON 전송은 접수했습니다. Excel을 저장하려면 연구자가 DataPipe 실험 설정에서 ‘Accept base64 file uploads’를 켠 뒤 ‘전송 다시 시도’를 눌러 주세요."});
+
+Object.assign(window.BATTERY_TEXT.vi,{"download":"Tải Excel kết quả","downloadJson":"JSON gốc đầy đủ (nhà nghiên cứu)","savingFiles":"Đang gửi 2 tệp: JSON và Excel…","savedFiles":"Đã lưu 2 tệp: JSON và Excel.","queuedFiles":"Đã tiếp nhận 2 tệp. Một số tệp đang chờ tải tới kho lưu trữ.","saveFailedFiles":"Đã tiếp nhận {n}/{total} tệp. Vui lòng tải JSON và Excel để bảo quản. Nếu có FILE_EXISTS, kiểm tra tệp cùng tên.","saveBase64Disabled":"JSON đã được tiếp nhận. Để lưu Excel, nhà nghiên cứu cần bật ‘Accept base64 file uploads’ trong DataPipe rồi gửi lại."});
+
+Object.assign(window.BATTERY_TEXT.ko,{"saveLocal":"기록이 이 브라우저에 보관되었습니다. Excel과 결과 JSON을 다운로드해 주세요.","saveDisabled":"자동 저장 연결 전입니다. Excel과 결과 JSON을 다운로드해 주세요.","storageUnavailable":"이 브라우저에서 임시 보관이 제한됩니다. 완료 화면에서 Excel과 결과 JSON을 꼭 다운로드해 주세요."});
+
+Object.assign(window.BATTERY_TEXT.vi,{"saveLocal":"Dữ liệu được lưu trong trình duyệt. Vui lòng tải Excel và JSON kết quả.","saveDisabled":"Chưa kết nối lưu tự động. Vui lòng tải Excel và JSON kết quả.","storageUnavailable":"Trình duyệt hạn chế lưu tạm. Vui lòng tải Excel và JSON kết quả khi hoàn thành."});
 </script>
 <script>(function(){
   'use strict';
@@ -6625,7 +6916,7 @@ Object.assign(window.BATTERY_TEXT.vi,{
 </script>
 <script>(function(){
   'use strict';
-  const $=s=>document.querySelector(s),L=BatteryLogic,P=BatteryPlugins;
+  const $=s=>document.querySelector(s),L=BatteryLogic,E=BatteryExport,U=BatteryUpload,P=BatteryPlugins;
   const STORE='attention-memory-session-v1',SETTINGS='attention-memory-settings-v1';
   let language=BATTERY_CONFIG.defaultLanguage||'ko',session=null,engine=null,running=false,starting=false,speechToken=0;
   let settings={dataPipeExperimentId:BATTERY_CONFIG.dataPipeExperimentId,autoUpload:BATTERY_CONFIG.autoUpload};
@@ -6751,14 +7042,12 @@ Object.assign(window.BATTERY_TEXT.vi,{
   $('#start-form').onsubmit=e=>{e.preventDefault();start(false).catch(showRuntimeError);};
   $('#demo-start').onclick=()=>start(true).catch(showRuntimeError);
   function rowsForExport(data=session,rows=app.rows){
-    const common={participant_id:data.participant_id,session_id:data.session_id,language:data.language,run_mode:data.run_mode,version:data.version,session_complete:data.session_complete,started_at:data.started_at,completed_at:data.completed_at||null,seed:data.seed,frame_interval_ms:data.frame_interval_ms,posner_order:data.posner_order||null};
-    const summaries=L.summaries(rows);
-    const f=summaries.find(s=>s.task_name==='memory'&&s.direction==='forward'),b=summaries.find(s=>s.task_name==='memory'&&s.direction==='backward');
-    const difference=f&&b?{record_type:'summary',task_name:'memory_comparison',forward_minus_backward_accuracy:f.accuracy!==null&&b.accuracy!==null?f.accuracy-b.accuracy:null,forward_minus_backward_span:f.max_span-b.max_span}:null;
-    return [...rows,...summaries,...(difference?[difference]:[]),{record_type:'session',task_name:'session',config_json:data.config,selected_tasks:data.selected,interruption_events:data.interruptions||app.interruptions,user_agent:data.user_agent,screen_width:data.screen_width,screen_height:data.screen_height,pixel_ratio:data.pixel_ratio}].map(row=>({...common,...row}));
+    return E.trialRows(data,rows);
   }
-  function download(content,name,type){const blob=new Blob([type.startsWith('text/csv')?'\uFEFF':'',content],{type}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);}
-  function exportCsv(data=session,rows=app.rows){download(L.csv(rowsForExport(data,rows)),data.filename||'recovered.csv','text/csv;charset=utf-8');}
+  function download(content,name,type){const blob=new Blob([content],{type}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);}
+  function exportWorkbook(data=session,rows=app.rows){download(E.workbookBytes(data,rows),E.fileNames(data).workbook,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');}
+  function exportJson(data=session,rows=app.rows,interruptions=app.interruptions){download(JSON.stringify(E.rawSession(data,rows,interruptions),null,2),E.fileNames(data).raw,'application/json;charset=utf-8');}
+  function exportResult(data=session,rows=app.rows){download(JSON.stringify(E.cleanResult(data,rows),null,2),E.fileNames(data).results,'application/json;charset=utf-8');}
   const fmt=(v,d=1)=>v===null||v===undefined?'—':Number(v).toFixed(d);
   function resultTable(){
     const summaries=L.summaries(app.rows);
@@ -6768,8 +7057,8 @@ Object.assign(window.BATTERY_TEXT.vi,{
   }
   function showResults(){
     document.body.classList.remove('running');$('#run-shell').hidden=true;$('#results').hidden=false;
-    $('#results').innerHTML=`<div class="success-icon">✓</div><div class="eyebrow">${session.run_mode==='demo'?'DEMONSTRATION':'SESSION COMPLETE'}</div><h1>${t(session.run_mode==='demo'?'demoDone':'done')}</h1><p>${t(session.run_mode==='demo'?'demoDoneBody':'doneBody')}</p><div class="save-status" id="save-status" role="status"></div><div class="result-actions"><button class="primary" id="download-csv">${t('download')}</button><button class="secondary" id="download-json">${t('downloadJson')}</button><button class="secondary" id="retry-save" hidden>${t('retry')}</button></div><details><summary>${t('researchResults')}</summary>${resultTable()}<p>${t('invalidNotice')}</p><p class="result-meta">${escape(session.participant_id)} · ${escape(session.session_id)}</p></details><div class="result-actions"><button class="secondary" id="new-session">${t('newSession')}</button><button class="text-button" id="clear-local">${t('clearLocal')}</button></div>`;
-    $('#download-csv').onclick=()=>exportCsv();$('#download-json').onclick=()=>download(JSON.stringify({...session,rows:app.rows,interruptions:app.interruptions},null,2),session.filename.replace('.csv','.json'),'application/json;charset=utf-8');
+    $('#results').innerHTML=`<div class="success-icon">✓</div><div class="eyebrow">${session.run_mode==='demo'?'DEMONSTRATION':'SESSION COMPLETE'}</div><h1>${t(session.run_mode==='demo'?'demoDone':'done')}</h1><p>${t(session.run_mode==='demo'?'demoDoneBody':'doneBody')}</p><div class="save-status" id="save-status" role="status"></div><div class="result-actions"><button class="primary" id="download-xlsx">${t('download')}</button><button class="secondary" id="download-result-json">${t('downloadResultJson')}</button><button class="secondary" id="retry-save" hidden>${t('retry')}</button></div><details><summary>${t('researchResults')}</summary>${resultTable()}<p>${t('invalidNotice')}</p><p class="result-meta">${escape(session.participant_id)} · ${escape(E.sessionId(session))}</p><button class="secondary" id="download-json">${t('downloadJson')}</button></details><div class="result-actions"><button class="secondary" id="new-session">${t('newSession')}</button><button class="text-button" id="clear-local">${t('clearLocal')}</button></div>`;
+    $('#download-xlsx').onclick=()=>exportWorkbook();$('#download-result-json').onclick=()=>exportResult();$('#download-json').onclick=()=>exportJson();
     $('#new-session').onclick=()=>{session=null;app.rows=[];$('#results').hidden=true;$('#home').hidden=false;checkRecovery();};
     $('#clear-local').onclick=()=>{if(confirm(t('clearConfirm'))){try{localStorage.removeItem(STORE);}catch{}$('#clear-local').disabled=true;}};
     $('#retry-save').onclick=()=>upload(true);upload(false);
@@ -6779,19 +7068,17 @@ Object.assign(window.BATTERY_TEXT.vi,{
     if(session.run_mode==='demo'){status.textContent=t('demoNoUpload');return;}
     if(!session.dataPipeExperimentId){status.textContent=t('saveDisabled');return;}
     if(session.autoUpload===false&&!manual){status.textContent=t('saveLocal');retry.hidden=false;return;}
-    if(['saved','queued'].includes(session.upload_status)){status.textContent=t(session.upload_status);return;}
-    status.textContent=t('saving');status.classList.remove('error');retry.hidden=true;session.upload_status='sending';localSave();
-    try{
-      const response=await fetch('https://pipe.jspsych.org/api/data/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({experimentID:session.dataPipeExperimentId,filename:session.filename,data:L.csv(rowsForExport())}),signal:AbortSignal.timeout(30000)});
-      const body=await response.json();
-      if(response.status===202&&!body.error){session.upload_status='queued';status.textContent=t('queued');}
-      else if(response.status===201&&!body.error){session.upload_status='saved';status.textContent=t('saved');}
-      else throw Error(body.error||'HTTP_'+response.status);
-    }catch(error){session.upload_status='uncertain';session.upload_error=error.message;status.textContent=t('saveFailed')+' ('+error.message+')';status.classList.add('error');/* No automatic resend: an uncertain timeout may already have stored this filename. */retry.hidden=false;}
-    localSave();
+    const files=E.files(session,app.rows);
+    await U.send(session,files,{onProgress:()=>{
+      const states=files.map(f=>session.upload_files[f.key]),accepted=states.filter(s=>['saved','queued'].includes(s.status)).length;
+      status.classList.toggle('error',session.upload_status==='uncertain');
+      status.textContent=session.upload_status==='sending'?t('savingFiles'):session.upload_status==='saved'?t('savedFiles'):session.upload_status==='queued'?t('queuedFiles'):t('saveFailedFiles',{n:accepted,total:files.length})+(session.upload_error?' ('+session.upload_error+')':'');
+      if(session.upload_error?.includes('BASE64DATA_COLLECTION_NOT_ACTIVE'))status.textContent=t('saveBase64Disabled');
+      retry.hidden=session.upload_status!=='uncertain'||states.every(s=>['saved','queued','needs_verify'].includes(s.status));localSave();
+    }});
   }
-  function showRuntimeError(error){console.error(error);running=false;window.speechSynthesis?.cancel();if(session){session.runtime_error=String(error);localSave();}$('#experiment').innerHTML=`<div class="runtime-error"><p>${escape(error.message||error)}</p><button id="error-download" class="primary">${t('download')}</button></div>`;$('#error-download').onclick=()=>exportCsv();}
-  function checkRecovery(){try{const recovered=JSON.parse(localStorage.getItem(STORE)||'null');$('#recovery').hidden=!recovered?.rows?.length;if(recovered?.rows?.length)$('#recover-download').onclick=()=>exportCsv(recovered,recovered.rows);}catch{$('#recovery').hidden=true;}}
+  function showRuntimeError(error){console.error(error);running=false;window.speechSynthesis?.cancel();if(session){session.runtime_error=String(error);localSave();}$('#experiment').innerHTML=`<div class="runtime-error"><p>${escape(error.message||error)}</p><button id="error-download" class="primary">${t('download')}</button><button id="error-json" class="secondary">${t('downloadJson')}</button></div>`;$('#error-download').onclick=()=>exportWorkbook();$('#error-json').onclick=()=>exportJson();}
+  function checkRecovery(){try{const recovered=JSON.parse(localStorage.getItem(STORE)||'null');$('#recovery').hidden=!recovered?.rows?.length;if(recovered?.rows?.length){$('#recover-download').onclick=()=>exportWorkbook(recovered,recovered.rows);$('#recover-result-json').onclick=()=>exportResult(recovered,recovered.rows);$('#recover-json').onclick=()=>exportJson(recovered,recovered.rows,recovered.interruptions||[]);}}catch{$('#recovery').hidden=true;}}
   updateLanguage(language);checkRecovery();
 })();
 </script>

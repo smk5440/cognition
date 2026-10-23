@@ -4237,7 +4237,7 @@ var initJsPsych = jsPsychModule.initJsPsych;
 <script>/* 연구자 설정. Posner는 중앙 예측 단서 / 주변 비예측 단서의 공간단서 검출 과제입니다. */
 window.BATTERY_CONFIG = {
   "version": "0.4.0-posner-20261023",
-  "dataPipeExperimentId": "",
+  "dataPipeExperimentId": "tDAHTPaQu9sy",
   "autoUpload": true,
   "defaultLanguage": "ko",
   "sustained": {
@@ -6629,7 +6629,7 @@ Object.assign(window.BATTERY_TEXT.vi,{
   const STORE='attention-memory-session-v1',SETTINGS='attention-memory-settings-v1';
   let language=BATTERY_CONFIG.defaultLanguage||'ko',session=null,engine=null,running=false,starting=false,speechToken=0;
   let settings={dataPipeExperimentId:BATTERY_CONFIG.dataPipeExperimentId,autoUpload:BATTERY_CONFIG.autoUpload};
-  try{settings={...settings,...JSON.parse(localStorage.getItem(SETTINGS)||'{}')};}catch{}
+  try{const cached=JSON.parse(localStorage.getItem(SETTINGS)||'{}');const cachedId=typeof cached?.dataPipeExperimentId==='string'?cached.dataPipeExperimentId.trim():'';if(cachedId)settings={...settings,...cached,dataPipeExperimentId:cachedId};}catch{}
   const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const t=(key,vars={})=>{let text=(BATTERY_TEXT[language]||BATTERY_TEXT.ko)[key]||key;for(const [k,v]of Object.entries(vars))text=text.replaceAll('{'+k+'}',String(v));return text;};
   const app={t,interruptions:[],rows:[],currentPhase:'',get session(){return session;}};
